@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="pt-pt">
+<head>
+    <meta charset="UTF-8">
+    <title>Conversor Moodle XML</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.21/mammoth.browser.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; max-width: 950px; margin: 30px auto; padding: 20px; background-color: black; }
+        .container { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 5px 20px rgba(0,0,0,0.1); border-top: 10px solid #3682f3; }
+        h1 { color: #3682f3; text-align: center; margin-bottom: 20px; margin-top: 5px;}
+        .upload-zone { border: 3px dashed #3682f3; padding: 40px; text-align: center; border-radius: 10px; background: #fff; cursor: pointer; transition: 0.2s; }
+        .upload-zone:hover { background: #f1f6ff; }
+        
+        /* Estilos do botão com efeito de flutuação */
+        button { 
+            background: #3682f3; 
+            color: white; 
+            border: none; 
+            padding: 20px; 
+            border-radius: 8px; 
+            width: 100%; 
+            font-size: 18px; 
+            cursor: pointer; 
+            margin-top: 20px; 
+            font-weight: bold; 
+            transition: all 0.5s ease; /* Suaviza a animação */
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1); /* Sombra inicial */
+        }
+        
+        button:hover { 
+            transform: translateY(-5px); /* Move o botão para cima */
+            box-shadow: 0 8px 15px rgba(54, 130, 243, 0.4); /* Sombra aumentada e colorida */
+        }
+        
+        button:disabled { 
+            background: #bdc1c6; 
+            cursor: not-allowed;
+            transform: none; /* Remove o efeito quando desabilitado */
+        }
+        
+        #console { margin-top: 25px; padding: 15px; background: #17181a; color: #75acff; font-family: 'Consolas', monospace; border-radius: 8px; font-size: 13px; max-height: 300px; overflow-y: auto; }
+        .success-badge { text-align: center; font-size: 20px; color: #3682f3; margin-top: 20px; display: none; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Conversor de Arquivos DOCX-XML</h1>
+    
+    <!-- Alteração aqui: Adicionei a chamada da função resetInterface() -->
+    <div class="upload-zone" onclick="resetInterface(); document.getElementById('fileInput').click()">
+        <strong>Clique aqui para carregar os seus arquivos .docx</strong>
+        <p id="fileName" style="margin-top:10px; color: #3682f3;"></p>
+        <input type="file" id="fileInput" accept=".docx" multiple style="display:none">
+    </div>
+
+    <button id="convertBtn" disabled>CONVERTER E GERAR XML</button>
+    
+    <div id="console">> Aguardando documento...</div>
+    <div id="result" class="success-badge">✔ CONCLUÍDO</div>
+</div>
+
+<script>
+    let rawHtml = "";
+    const consoleLog = document.getElementById('console');
+    const convertBtn = document.getElementById('convertBtn');
+    const filesArray = [];
+    let questionCounter = 0; // Contador para numeração do arquivo
+
+    // Função para limpar a interface ao tentar carregar um novo arquivo
+    function resetInterface() {
+        document.getElementById('result').style.display = "none"; // Esconde mensagem de sucesso
+        consoleLog.innerHTML = "> Aguardando documento..."; // Reseta o log
+        document.getElementById('fileName').innerText = ""; // Limpa nome do arquivo
+        convertBtn.disabled = true; // Desabilita o botão
+        filesArray.length = 0; // Limpa o array de arquivos
+    }
+
+    // Configuração do input de arquivos
+    document.getElementById('fileInput').addEventListener('change', function(e) {
+        const files = e.target.files;
+        if (!files.length) return;
+
+        // Verifica se a seleção é de uma pasta
+        const folderName = files[0].webkitRelativePath ? files[0].webkitRelativePath.split("/")[0] : null;
+
+        // Exibe o nome da pasta se for uma pasta ou a quantidade de arquivos
+        if (folderName) {
+            document.getElementById('fileName').innerText = folderName;
+        } else {
+            document.getElementById('fileName').innerText = `${files.length} arquivos selecionados`;
+        }
+
+        consoleLog.innerHTML = "> Processando arquivos...<br>";
+        
+        // Limpar o array de arquivos a cada novo upload
+        filesArray.length = 0;
+
+        // Itera sobre todos os arquivos na pasta ou selecionados individualmente
+        Array.from(files).forEach(file => {
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                mammoth.convertToHtml({arrayBuffer: event.target.result})
+                    .then(result => {
+                        rawHtml = result.value;
+
+                        // Adiciona o conteúdo HTML do arquivo ao array
+                        filesArray.push({ html: rawHtml, name: file.name });
+
+                        consoleLog.innerHTML += `> Documento ${file.name} lido com sucesso.<br>`;
+
+                        // Habilita o botão apenas depois que todos os arquivos forem lidos
+                        if (filesArray.length === files.length) {
+                            convertBtn.disabled = false;
+                        }
+                    })
+                    .catch(err => {
+                        consoleLog.innerHTML += `<br><span style="color:red">Erro ao ler arquivo: ${err.message}</span>`;
+                    });
+            };
+            reader.readAsArrayBuffer(file);
+        });
+    });
+
+    convertBtn.addEventListener('click', () => {
+        // Verificar se há apenas um arquivo ou múltiplos
+        if (filesArray.length === 1) {
+            // Se apenas 1 arquivo, gerar XML diretamente
+            generateXMLForSingleFile(filesArray[0]);
+        } else {
+            // Se mais de 1 arquivo, gerar um arquivo ZIP
+            const zip = new JSZip(); // Instancia o ZIP
+
+            filesArray.forEach(fileData => {
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(fileData.html, 'text/html');
+            
+                const elements = Array.from(doc.querySelectorAll('p, td, tr, li'));
+                
+                let questions = [];
+                let currentQ = null;
+                let isCollectingEnunciado = false;
+                let lastAddedText = "";
+                let isInsideEnunciadoSection = false;
+
+                consoleLog.innerHTML += `> Iniciando varredura por padrões para o arquivo: ${fileData.name}<br>`;
+
+                elements.forEach(el => {
+                    const text = el.innerText.trim();
+                    const html = el.innerHTML;
+
+                    // 1. Detectar início da questão
+                    if (/Questão\s*\d+/i.test(text) && !text.includes("N.º DA QUESTÃO")) {
+                        if (currentQ && currentQ.answers.length > 0) questions.push(currentQ);
+                        
+                        currentQ = { 
+                            name: `Q${(questions.length + 1).toString().padStart(2, '0')}`,
+                            text: "",
+                            answers: []
+                        };
+                        isCollectingEnunciado = true;
+                        isInsideEnunciadoSection = false;
+                        lastAddedText = "";
+                        consoleLog.innerHTML += `> Detectada Questão ${questions.length + 1}<br>`;
+                        return;
+                    }
+
+                    if (!currentQ) return;
+
+                    // 2. Detectar Alternativas
+                    if (/^CORRETA/i.test(text)) {
+                        isCollectingEnunciado = false;
+                        isInsideEnunciadoSection = false;
+                        let val = text.replace(/^CORRETA/i, "").trim().replace(/^,/, "").trim();
+                        if(val) currentQ.answers.push({ text: val, fraction: 100 });
+                    } 
+                    else if (/^Incorreta/i.test(text)) {
+                        isCollectingEnunciado = false;
+                        isInsideEnunciadoSection = false;
+                        let val = text.replace(/^Incorreta/i, "").trim().replace(/^,/, "").trim();
+                        if(val) currentQ.answers.push({ text: val, fraction: 0 });
+                    }
+                    // 3. Detectar seção ENUNCIADO
+                    else if (/ENUNCIADO/i.test(text)) {
+                        isInsideEnunciadoSection = true;
+                        return;
+                    }
+                    // 4. Coletar Enunciado (apenas conteúdo dentro da seção ENUNCIADO)
+                    else if (isCollectingEnunciado && isInsideEnunciadoSection) {
+                        const ignore = ["DIFICULDADE", "FEEDBACK", "GABARITO", "ESCOLHA UMA OPÇÃO"];
+                        const shouldIgnore = ignore.some(word => text.toUpperCase() === word);
+                        
+                        if (!shouldIgnore && text.length > 1) {
+                            // VERIFICAÇÃO DE DUPLICAÇÃO: Se o texto já está no enunciado, ignora
+                            if (!currentQ.text.includes(text) && text !== lastAddedText) {
+                                // Adiciona <p> com margin-bottom para preservar espaçamento
+                                currentQ.text += `<p style="margin-bottom: 12px;">${html}</p>`;
+                                lastAddedText = text;
+                            }
+                        }
+                    }
+                });
+
+                // Adiciona a última questão processada
+                if (currentQ && currentQ.answers.length > 0) questions.push(currentQ);
+
+                if (questions.length > 0) {
+                    const xml = createXML(questions);
+                    const filename = fileData.name.replace(".docx", ".xml");
+
+                    // Adiciona o arquivo XML no ZIP
+                    zip.file(filename, xml);
+                }
+            });
+
+            // Depois de adicionar todos os arquivos no ZIP, faz o download
+            zip.generateAsync({ type: "blob" }).then(function(content) {
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(content);
+                link.download = "arquivos_xml.zip"; // Nome do arquivo ZIP
+                link.click(); // Inicia o download
+            });
+
+            consoleLog.innerHTML += "> Download do ZIP completo!<br>";
+        }
+
+        // Exibe a mensagem de "CONCLUÍDO" no final
+        document.getElementById('result').style.display = "block";
+    });
+
+    // Função para gerar o XML para um único arquivo
+    function generateXMLForSingleFile(fileData) {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(fileData.html, 'text/html');
+    
+        const elements = Array.from(doc.querySelectorAll('p, td, tr, li'));
+        
+        let questions = [];
+        let currentQ = null;
+        let isCollectingEnunciado = false;
+        let lastAddedText = "";
+        let isInsideEnunciadoSection = false;
+
+        consoleLog.innerHTML += `> Iniciando varredura por padrões para o arquivo: ${fileData.name}<br>`;
+
+        elements.forEach(el => {
+            const text = el.innerText.trim();
+            const html = el.innerHTML;
+
+            // 1. Detectar início da questão
+            if (/Questão\s*\d+/i.test(text) && !text.includes("N.º DA QUESTÃO")) {
+                if (currentQ && currentQ.answers.length > 0) questions.push(currentQ);
+                
+                currentQ = { 
+                    name: `Q${(questions.length + 1).toString().padStart(2, '0')}`,
+                    text: "",
+                    answers: []
+                };
+                isCollectingEnunciado = true;
+                isInsideEnunciadoSection = false;
+                lastAddedText = "";
+                consoleLog.innerHTML += `> Detectada Questão ${questions.length + 1}<br>`;
+                return;
+            }
+
+            if (!currentQ) return;
+
+            // 2. Detectar Alternativas
+            if (/^CORRETA/i.test(text)) {
+                isCollectingEnunciado = false;
+                isInsideEnunciadoSection = false;
+                let val = text.replace(/^CORRETA/i, "").trim().replace(/^,/, "").trim();
+                if(val) currentQ.answers.push({ text: val, fraction: 100 });
+            } 
+            else if (/^Incorreta/i.test(text)) {
+                isCollectingEnunciado = false;
+                isInsideEnunciadoSection = false;
+                let val = text.replace(/^Incorreta/i, "").trim().replace(/^,/, "").trim();
+                if(val) currentQ.answers.push({ text: val, fraction: 0 });
+            }
+            // 3. Detectar seção ENUNCIADO
+            else if (/ENUNCIADO/i.test(text)) {
+                isInsideEnunciadoSection = true;
+                return;
+            }
+            // 4. Coletar Enunciado (apenas conteúdo dentro da seção ENUNCIADO)
+            else if (isCollectingEnunciado && isInsideEnunciadoSection) {
+                const ignore = ["DIFICULDADE", "FEEDBACK", "GABARITO", "ESCOLHA UMA OPÇÃO"];
+                const shouldIgnore = ignore.some(word => text.toUpperCase() === word);
+                
+                if (!shouldIgnore && text.length > 1) {
+                    // VERIFICAÇÃO DE DUPLICAÇÃO: Se o texto já está no enunciado, ignora
+                    if (!currentQ.text.includes(text) && text !== lastAddedText) {
+                        // Adiciona <p> com margin-bottom para preservar espaçamento
+                        currentQ.text += `<p style="margin-bottom: 12px;">${html}</p>`;
+                        lastAddedText = text;
+                    }
+                }
+            }
+        });
+
+        // Adiciona a última questão processada
+        if (currentQ && currentQ.answers.length > 0) questions.push(currentQ);
+
+        if (questions.length > 0) {
+            const xml = createXML(questions);
+            const filename = fileData.name.replace(".docx", ".xml");
+            downloadXML(xml, filename);
+        }
+    }
+
+    // Função para baixar o XML para um único arquivo
+    function downloadXML(xml, filename) {
+        const blob = new Blob([xml], { type: 'text/xml' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = filename;
+        link.click();
+    }
+
+    // Função para gerar o XML
+    function createXML(questions) {
+        let xml = `<?xml version="1.0" encoding="UTF-8"?>\n<quiz>\n`;
+        questions.forEach(q => {
+            xml += `  <question type="multichoice">\n`;
+            xml += `    <name><text>${q.name}</text></name>\n`;
+            xml += `    <questiontext format="html"><text><![CDATA[${q.text}]]></text></questiontext>\n`;
+            xml += `    <single>true</single>\n`;
+            xml += `    <shuffleanswers>true</shuffleanswers>\n`;
+            q.answers.forEach(ans => {
+                xml += `    <answer fraction="${ans.fraction}" format="html"><text><![CDATA[${ans.text}]]></text></answer>\n`;
+            });
+            xml += `  </question>\n`;
+        });
+        xml += `</quiz>`;
+        return xml;
+    }
+</script>
+
+</body>
+</html>
