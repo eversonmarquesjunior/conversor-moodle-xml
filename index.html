@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Conversor Moodle XML</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔄</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js"></script>
@@ -17,42 +16,37 @@
   }
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
   body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;overflow-x:hidden}
-  
   .blob{position:fixed;border-radius:50%;filter:blur(120px);pointer-events:none;z-index:0;width:500px;height:500px;background:rgba(91,94,244,.1);top:-100px;left:-100px}
   .wrap{position:relative;z-index:1;max-width:600px;margin:0 auto;padding:60px 24px}
   header{padding:0 0 40px;text-align:center}
   .badge{display:inline-flex;align-items:center;gap:6px;background:rgba(91,94,244,.15);border:1px solid rgba(91,94,244,.3);border-radius:999px;padding:4px 14px;font-size:11px;font-family:var(--mono);color:var(--accent2);letter-spacing:.08em;margin-bottom:12px}
   h1{font-size:2.6rem;font-weight:700;background:linear-gradient(135deg,#fff 0%,var(--accent2) 60%,var(--green) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
-
   .card{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:24px;margin-bottom:20px;transition:all .3s ease}
   
-  .drop-zone{border:2px dashed var(--border);border-radius:14px;padding:50px 24px;text-align:center;cursor:pointer;transition:all .25s ease;background:rgba(255,255,255,0.01);position:relative}
-  .drop-zone.drag-over{border-color:var(--accent);background:rgba(91,94,244,0.1);transform:scale(1.01);box-shadow:0 0 20px rgba(91,94,244,0.1)}
+  /* Estilos da Drop Zone */
+  .drop-zone{border:2px dashed var(--border);border-radius:14px;padding:50px 24px;text-align:center;cursor:pointer;transition:all .25s ease;background:rgba(255,255,255,0.01)}
+  .drop-zone.drag-over{border-color:var(--accent);background:rgba(91,94,244,0.1);transform:scale(1.02)}
   .drop-icon{font-size:48px;display:block;margin-bottom:12px}
   
   #fi{display:none}
   .file-list{margin-top:16px;display:flex;flex-direction:column;gap:8px}
-  .file-item{background:rgba(34,211,163,.08);border:1px solid rgba(34,211,163,.2);border-radius:10px;padding:12px 16px;font-size:13px;color:var(--green);font-family:var(--mono);display:flex;justify-content:space-between;align-items:center}
-
+  .file-item{background:rgba(34,211,163,.08);border:1px solid rgba(34,211,163,.2);border-radius:10px;padding:12px 16px;font-size:13px;color:var(--green);font-family:var(--mono);display:flex;justify-content:space-between}
+  
   .btn-cvt{width:100%;padding:18px;background:linear-gradient(135deg,var(--accent) 0%,#7c3aed 100%);border:none;border-radius:14px;color:#fff;font-family:var(--sans);font-size:16px;font-weight:800;cursor:pointer;transition:all .2s ease;display:flex;align-items:center;justify-content:center;gap:10px}
-  .btn-cvt:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 8px 32px rgba(91,94,244,.4)}
   .btn-cvt:disabled{opacity:.4;cursor:not-allowed}
-
-  .btn-clear{background:none;border:none;color:var(--muted);font-family:var(--mono);font-size:11px;cursor:pointer;margin-top:15px;text-decoration:underline;display:none;width:100%;text-align:center}
+  
+  .btn-clear{background:none;border:none;color:var(--muted);font-family:var(--mono);font-size:11px;cursor:pointer;margin-top:15px;text-decoration:underline;display:none;width:100%;text-align:center;transition:color 0.2s}
   .btn-clear:hover{color:var(--red)}
 
   #toast-container{position:fixed;bottom:24px;right:24px;z-index:1000;display:flex;flex-direction:column;gap:10px}
-  .toast{padding:14px 20px;border-radius:12px;font-family:var(--sans);font-size:14px;font-weight:600;color:#fff;display:flex;align-items:center;gap:10px;box-shadow:0 10px 30px rgba(0,0,0,0.5);animation:slideIn 0.3s ease forwards}
+  .toast{padding:14px 20px;border-radius:12px;font-family:var(--sans);font-size:14px;font-weight:600;color:#fff;animation:slideIn 0.3s ease forwards}
   .toast.success{background:var(--green);color:#0a2a1f}
   .toast.error{background:var(--red)}
-
-  .hide-section { display: none !important; }
   @keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
 </style>
 </head>
 <body>
 <div class="blob"></div>
-
 <div class="wrap">
   <header>
     <div class="badge">v1 - 03/2026</div>
@@ -60,26 +54,18 @@
   </header>
 
   <div class="card">
-    <div class="drop-zone" id="drop-zone" onclick="document.getElementById('fi').click()">
+    <div class="drop-zone" id="dz" onclick="document.getElementById('fi').click()">
       <input type="file" id="fi" accept=".docx" multiple>
       <span class="drop-icon">📂</span>
-      <strong>Arraste ou selecione seus arquivos</strong>
-      <p style="font-size:12px; color:var(--muted); margin-top:8px; font-family:var(--mono)">Documentos Word (.docx)</p>
+      <strong>Arraste ou selecione seus arquivos .docx</strong>
     </div>
-    <div class="file-list" id="file-list"></div>
+    <div class="file-list" id="fl"></div>
     <button class="btn-clear" id="btn-clear" onclick="clearFiles()">Limpar arquivos</button>
   </div>
 
   <button class="btn-cvt" id="bcvt" disabled onclick="doConvert()">
     <span id="btn-text">CONVERTER E BAIXAR</span>
   </button>
-
-  <div class="hide-section">
-    <input type="text" id="c-pfx" value="Q">
-    <input type="number" id="c-start" value="1">
-    <select id="c-num"><option value="abc">abc</option></select>
-    <select id="c-shuf"><option value="true">true</option></select>
-  </div>
 </div>
 
 <div id="toast-container"></div>
@@ -88,47 +74,77 @@
 let filesData = [];
 const W='http://schemas.openxmlformats.org/wordprocessingml/2006/main', A='http://schemas.openxmlformats.org/drawingml/2006/main', R='http://schemas.openxmlformats.org/officeDocument/2006/relationships', REL_NS='http://schemas.openxmlformats.org/package/2006/relationships';
 
-const dz = document.getElementById('drop-zone');
-['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => {
-  dz.addEventListener(evt, e => { e.preventDefault(); e.stopPropagation(); });
+// Configuração do Drag and Drop
+const dropZone = document.getElementById('dz');
+
+['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+  dropZone.addEventListener(eventName, preventDefaults, false);
 });
-dz.addEventListener('dragover', () => dz.classList.add('drag-over'));
-dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
-dz.addEventListener('drop', (e) => { dz.classList.remove('drag-over'); handleFiles(e.dataTransfer.files); });
+
+function preventDefaults(e) {
+  e.preventDefault();
+  e.stopPropagation();
+}
+
+['dragenter', 'dragover'].forEach(eventName => {
+  dropZone.addEventListener(eventName, () => dropZone.classList.add('drag-over'), false);
+});
+
+['dragleave', 'drop'].forEach(eventName => {
+  dropZone.addEventListener(eventName, () => dropZone.classList.remove('drag-over'), false);
+});
+
+dropZone.addEventListener('drop', (e) => {
+  const dt = e.dataTransfer;
+  const files = dt.files;
+  handleFiles(files);
+}, false);
+
+// Input via clique
 document.getElementById('fi').onchange = e => handleFiles(e.target.files);
 
 function handleFiles(files) {
-  const filteredFiles = [...files].filter(f => f.name.endsWith('.docx'));
-  if(filteredFiles.length === 0) return showToast("Selecione apenas arquivos .docx", "error");
+  const filtered = [...files].filter(f => f.name.endsWith('.docx'));
+  if(filtered.length === 0) {
+    showToast("Por favor, selecione arquivos .docx", "error");
+    return;
+  }
 
-  filteredFiles.forEach(f => {
+  let loadedCount = 0;
+  filtered.forEach(f => {
     const reader = new FileReader();
     reader.onload = ev => {
       filesData.push({ name: f.name, buffer: ev.target.result });
-      document.getElementById('file-list').innerHTML += `<div class="file-item"><span>📄 ${f.name}</span> <span style="font-size:10px; opacity:0.6">PRONTO</span></div>`;
+      document.getElementById('fl').innerHTML += `<div class="file-item"><span>📄 ${f.name}</span></div>`;
       document.getElementById('bcvt').disabled = false;
       document.getElementById('btn-clear').style.display = 'block';
+      
+      loadedCount++;
+      if(loadedCount === filtered.length) {
+        showToast(`${filtered.length} arquivo(s) adicionado(s)`, "success");
+      }
     };
     reader.readAsArrayBuffer(f);
   });
-  showToast(`${filteredFiles.length} arquivo(s) adicionado(s)`, "success");
 }
 
 function clearFiles() {
   filesData = [];
-  document.getElementById('file-list').innerHTML = '';
+  document.getElementById('fl').innerHTML = '';
   document.getElementById('bcvt').disabled = true;
   document.getElementById('btn-clear').style.display = 'none';
   document.getElementById('fi').value = '';
+  showToast("Arquivos removidos", "success");
 }
 
 function showToast(msg, type) {
-  const container = document.getElementById('toast-container');
   const t = document.createElement('div');
-  t.className = `toast ${type}`;
-  t.innerHTML = `<span>${type === 'success' ? '✅' : '❌'}</span> ${msg}`;
-  container.appendChild(t);
-  setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 3000);
+  t.className = `toast ${type}`; t.innerText = msg;
+  document.getElementById('toast-container').appendChild(t);
+  setTimeout(() => {
+    t.style.opacity = '0';
+    setTimeout(() => t.remove(), 400);
+  }, 3000);
 }
 
 function escXml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -136,65 +152,78 @@ function escXml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
 async function parseDOCX(arrayBuffer) {
   const zip = await JSZip.loadAsync(arrayBuffer);
   const relsText = await zip.file('word/_rels/document.xml.rels').async('text');
-  const relMap = {};
   const relsDoc = new DOMParser().parseFromString(relsText, 'text/xml');
+  const relMap = {};
   for (const rel of relsDoc.getElementsByTagNameNS(REL_NS, 'Relationship')) relMap[rel.getAttribute('Id')] = rel.getAttribute('Target');
 
   const imgMap = {};
-  for (const [rId, target] of Object.entries(relMap)) {
+  for (const [rid, target] of Object.entries(relMap)) {
     const path = 'word/' + target.replace(/^\//, '');
     const f = zip.file(path);
-    if (f && {png:1,jpg:1,jpeg:1,gif:1}[path.split('.').pop().toLowerCase()]) {
-      imgMap[rId] = { mime: 'image/'+path.split('.').pop(), b64: await f.async('base64') };
-    }
+    if (f && /png|jpg|jpeg|gif/i.test(path)) imgMap[rid] = { mime: 'image/'+path.split('.').pop(), b64: await f.async('base64') };
   }
 
   const docXml = new DOMParser().parseFromString(await zip.file('word/document.xml').async('text'), 'text/xml');
   const questions = [];
+
   for (const tbl of docXml.getElementsByTagNameNS(W, 'tbl')) {
+    let currentQ = { enuncHtml: "", alternatives: [] };
     const rows = tbl.getElementsByTagNameNS(W, 'tr');
-    if (rows.length < 2) continue;
-    let q = { enuncHtml: '', alternatives: [], correct: 0 };
-    for (let ri = 0; ri < rows.length; ri++) {
-      const cells = rows[ri].getElementsByTagNameNS(W, 'tc');
+    
+    for (const row of rows) {
+      const cells = row.getElementsByTagNameNS(W, 'tc');
       if (cells.length < 2) continue;
-      const lbl = cells[0].textContent.toUpperCase();
-      let pContent = "";
-      for (const p of cells[1].getElementsByTagNameNS(W, 'p')) {
-        let txt = "";
+
+      const label = cells[0].textContent.trim();
+      let targetCell = null;
+      for (let i = 1; i < cells.length; i++) {
+        if (cells[i].textContent.trim() !== "") { targetCell = cells[i]; break; }
+      }
+      if (!targetCell) continue;
+
+      let htmlContent = "";
+      for (const p of targetCell.getElementsByTagNameNS(W, 'p')) {
+        let pText = "";
         for (const r of p.getElementsByTagNameNS(W, 'r')) {
           const drw = r.getElementsByTagNameNS(W, 'drawing')[0];
           if (drw) {
-            const rid = drw.getElementsByTagNameNS(A, 'blip')[0]?.getAttributeNS(R, 'embed');
-            if (rid && imgMap[rid]) txt += `<img src="data:${imgMap[rid].mime};base64,${imgMap[rid].b64}" style="max-width:100%">`;
+            const blip = drw.getElementsByTagNameNS(A, 'blip')[0];
+            const rid = blip?.getAttributeNS(R, 'embed');
+            if (rid && imgMap[rid]) pText += `<img src="data:${imgMap[rid].mime};base64,${imgMap[rid].b64}" style="max-width:100%">`;
           }
           const t = r.getElementsByTagNameNS(W, 't')[0];
           if (t) {
             let s = escXml(t.textContent);
             if (r.getElementsByTagNameNS(W, 'b').length) s = `<b>${s}</b>`;
-            txt += s;
+            pText += s;
           }
         }
-        if (txt) pContent += `<p>${txt}</p>`;
+        if (pText.trim()) htmlContent += `<p>${pText}</p>`;
       }
-      if (lbl.includes('ENUNCIADO')) q.enuncHtml = pContent;
-      else if (lbl.includes('CORRETA')) { q.correct = q.alternatives.length; q.alternatives.push(pContent); }
-      else if (lbl.includes('INCORRETA')) q.alternatives.push(pContent);
+
+      if (/ENUNCIADO/i.test(label)) {
+        currentQ.enuncHtml = htmlContent;
+      } 
+      else if (/^CORRETA/i.test(label)) {
+        currentQ.alternatives.push({ html: htmlContent, fraction: 100 });
+      } 
+      else if (/^Incorreta/i.test(label)) {
+        currentQ.alternatives.push({ html: htmlContent, fraction: 0 });
+      }
     }
-    if (q.enuncHtml) questions.push(q);
+    if (currentQ.enuncHtml && currentQ.alternatives.length > 0) questions.push(currentQ);
   }
   return questions;
 }
 
-function buildXML(questions, cfg) {
+function buildXML(questions) {
   let x = `<?xml version="1.0" encoding="UTF-8"?>\n<quiz>\n`;
   questions.forEach((q, i) => {
-    const num = (i + 1).toString().padStart(2, '0');
-    x += `<question type="multichoice">\n<name><text>Q${num}</text></name>\n`;
+    x += `<question type="multichoice">\n<name><text>Q${(i+1).toString().padStart(2,'0')}</text></name>\n`;
     x += `<questiontext format="html"><text><![CDATA[${q.enuncHtml}]]></text></questiontext>\n`;
     x += `<single>true</single><shuffleanswers>true</shuffleanswers><answernumbering>abc</answernumbering>\n`;
-    q.alternatives.forEach((alt, ai) => {
-      x += `<answer fraction="${ai===q.correct?100:0}" format="html"><text><![CDATA[${alt}]]></text></answer>\n`;
+    q.alternatives.forEach(alt => {
+      x += `<answer fraction="${alt.fraction}" format="html"><text><![CDATA[${alt.html}]]></text></answer>\n`;
     });
     x += `</question>\n`;
   });
@@ -203,36 +232,36 @@ function buildXML(questions, cfg) {
 
 async function doConvert() {
   const btn = document.getElementById('bcvt');
-  const btnText = document.getElementById('btn-text');
-  btn.disabled = true; btnText.innerText = "⚙️ PROCESSANDO...";
-
+  btn.disabled = true;
   try {
-    const zip = new JSZip();
-    let totalQs = 0;
-    for (const fd of filesData) {
-      const qs = await parseDOCX(fd.buffer);
-      totalQs += qs.length;
-      const blob = new Blob(["\ufeff", buildXML(qs, {start:1})], {type: 'text/xml;charset=utf-8'});
-      zip.file(fd.name.replace('.docx', '.xml'), blob);
-    }
-
-    if (filesData.length > 1) {
-      const content = await zip.generateAsync({type:'blob'});
-      save(content, 'questoes_moodle_xml.zip');
+    let total = 0;
+    if (filesData.length === 1) {
+      const f = filesData[0];
+      const qs = await parseDOCX(f.buffer);
+      total = qs.length;
+      const xmlString = "\ufeff" + buildXML(qs);
+      const blob = new Blob([xmlString], {type: 'text/xml;charset=utf-8'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = f.name.replace('.docx', '.xml');
+      a.click();
     } else {
-      const qs = await parseDOCX(filesData[0].buffer);
-      save(new Blob(["\ufeff", buildXML(qs, {start:1})], {type: 'text/xml;charset=utf-8'}), filesData[0].name.replace('.docx', '.xml'));
+      const zip = new JSZip();
+      for (const f of filesData) {
+        const qs = await parseDOCX(f.buffer);
+        total += qs.length;
+        zip.file(f.name.replace('.docx','.xml'), "\ufeff" + buildXML(qs));
+      }
+      const blob = await zip.generateAsync({type:'blob'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = "questoes_moodle.zip";
+      a.click();
     }
-    showToast(`${totalQs} questões convertidas!`, "success");
-  } catch (err) {
+    showToast(`Download de ${total} questões finalizado!`, "success");
+  } catch (e) {
     showToast("Erro na conversão", "error");
-  } finally {
-    btn.disabled = false; btnText.innerText = "CONVERTER E BAIXAR";
-  }
-}
-
-function save(blob, name) {
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  } finally { btn.disabled = false; }
 }
 </script>
 </body>
