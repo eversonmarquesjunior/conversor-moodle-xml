@@ -1,0 +1,190 @@
+:root {
+    --bg:#0a0a0f; --surface:#111118; --surface2:#1a1a26; --border:#2a2a3e;
+    --accent:#5b5ef4; --accent2:#a78bfa; --green:#22d3a3; --red:#f87171;
+    --text:#e8e8f0; --muted:#6b6b8a;
+    --mono:'DM Mono',monospace; --sans:'Syne',sans-serif;
+}
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--sans);
+    min-height:100vh;
+    overflow-x:hidden;
+}
+
+.blob{
+    position:fixed;
+    border-radius:50%;
+    filter:blur(120px);
+    pointer-events:none;
+    z-index:0;
+    width:500px;
+    height:500px;
+    background:rgba(91,94,244,.1);
+    top:-100px;
+    left:-100px;
+}
+
+.wrap{
+    position:relative;
+    z-index:1;
+    max-width:600px;
+    margin:0 auto;
+    padding:60px 24px;
+}
+
+header{padding:0 0 40px;text-align:center}
+
+.badge{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    background:rgba(91,94,244,.15);
+    border:1px solid rgba(91,94,244,.3);
+    border-radius:999px;
+    padding:4px 14px;
+    font-size:11px;
+    font-family:var(--mono);
+    color:var(--accent2);
+    letter-spacing:.08em;
+    margin-bottom:12px;
+}
+
+h1{
+    font-size:2.6rem;
+    font-weight:700;
+    background:linear-gradient(135deg,#fff 0%,var(--accent2) 60%,var(--green) 100%);
+    -webkit-background-clip:text;
+    -webkit-text-fill-color:transparent;
+    background-clip:text;
+}
+
+.card{
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:20px;
+    padding:24px;
+    margin-bottom:20px;
+    transition:all .3s ease;
+}
+
+.drop-zone{
+    border:2px dashed var(--border);
+    border-radius:14px;
+    padding:50px 24px;
+    text-align:center;
+    cursor:pointer;
+    transition:all 0.3s cubic-bezier(0.23, 1, 0.32, 1);
+    background:rgba(255,255,255,0.01);
+}
+
+.drop-zone:hover {
+    transform: translateY(-5px);
+    border-color: var(--accent2);
+    background: rgba(91, 94, 244, 0.05);
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
+}
+
+.drop-zone.drag-over{
+    border-color:var(--accent);
+    background:rgba(91,94,244,0.1);
+    transform:scale(1.02);
+}
+
+.drop-icon{font-size:48px;display:block;margin-bottom:12px}
+
+#fi{display:none}
+
+.file-list{margin-top:16px;display:flex;flex-direction:column;gap:8px}
+
+.file-item{
+    background:rgba(34,211,163,.08);
+    border:1px solid rgba(34,211,163,.2);
+    border-radius:10px;
+    padding:12px 16px;
+    font-size:13px;
+    color:var(--green);
+    font-family:var(--mono);
+    display:flex;
+    justify-content:space-between;
+}
+
+.btn-cvt {
+    width:100%;
+    padding:18px;
+    background:linear-gradient(135deg,var(--accent) 0%,#7c3aed 100%);
+    border:none;
+    border-radius:14px;
+    color:#fff;
+    font-family:var(--sans);
+    font-size:16px;
+    font-weight:800;
+    cursor:pointer;
+    transition:all 0.3s cubic-bezier(0.23, 1, 0.32, 1);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:10px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+.btn-cvt:hover:not(:disabled) {
+    transform: translateY(-5px);
+    box-shadow: 0 12px 25px rgba(91, 94, 244, 0.3);
+    filter: brightness(1.1);
+}
+
+.btn-cvt:active:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 5px 10px rgba(0, 0, 0, 0.2);
+}
+
+.btn-cvt:disabled{opacity:.4;cursor:not-allowed}
+
+.btn-clear{
+    background:none;
+    border:none;
+    color:var(--muted);
+    font-family:var(--mono);
+    font-size:11px;
+    cursor:pointer;
+    margin-top:15px;
+    text-decoration:underline;
+    display:none;
+    width:100%;
+    text-align:center;
+    transition:color 0.2s;
+}
+
+.btn-clear:hover{color:var(--red)}
+
+#toast-container{
+    position:fixed;
+    bottom:24px;
+    right:24px;
+    z-index:1000;
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+}
+
+.toast{
+    padding:14px 20px;
+    border-radius:12px;
+    font-family:var(--sans);
+    font-size:14px;
+    font-weight:600;
+    color:#fff;
+    animation:slideIn 0.3s ease forwards;
+}
+
+.toast.success{background:var(--green);color:#0a2a1f}
+.toast.error{background:var(--red)}
+
+@keyframes slideIn{
+    from{transform:translateX(100%);opacity:0}
+    to{transform:translateX(0);opacity:1}
+}
