@@ -69,7 +69,7 @@ function escXml(s) {
 }
 
 function processLists(html) {
-    // Process numbered lists (1., 2., etc.)
+    // Process numbered lists (1., 2., 3. etc.)
     html = html.replace(/(<span>(\d+)\.\s*([^<]*?)<\/span><br>\s*)+/g, (match) => {
         const items = match.match(/<span>(\d+)\.\s*([^<]*?)<\/span><br>/g);
         if (items && items.length > 1) {
