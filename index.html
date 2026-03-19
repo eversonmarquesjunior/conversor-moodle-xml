@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conversor Moodle XML</title>
+    <link rel="icon" type="image/png" href="favicon.ico.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="blob"></div>
+    <div class="wrap">
+        <header>
+            <div class="badge">v1 - 03/2026</div>
+            <h1>DOCX → MOODLE XML</h1>
+        </header>
+
+        <div class="card">
+            <div class="drop-zone" id="dz" onclick="document.getElementById('fi').click()">
+                <input type="file" id="fi" accept=".docx" multiple>
+                <span class="drop-icon">📂</span>
+                <strong>Arraste ou selecione seus arquivos .docx</strong>
+            </div>
+            <div class="file-list" id="fl"></div>
+            <button class="btn-clear" id="btn-clear" onclick="clearFiles()">Limpar arquivos</button>
+        </div>
+
+        <button class="btn-cvt" id="bcvt" disabled onclick="doConvert()">
+            <span id="btn-text">CONVERTER E BAIXAR</span>
+        </button>
+    </div>
+
+    <div id="toast-container"></div>
+
+    <script src="script.js"></script>
+</body>
+</html>
