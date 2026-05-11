@@ -176,11 +176,12 @@ async function parseDOCX(arrayBuffer) {
     const questions = [];
 
     for (const tbl of docXml.getElementsByTagNameNS(W, 'tbl')) {
-        let currentQ = { enuncHtml: "", alternatives: [] };
-        const rows = tbl.getElementsByTagNameNS(W, 'tr');
-        
+        let currentQ = { enuncHtml: "", alternatives: [], images: [], imgRidToName: {} };
+        let hasEnunciado = false;
+        const rows = Array.from(tbl.childNodes).filter(n => n.nodeType === 1 && n.namespaceURI === W && n.localName === 'tr');
+
         for (const row of rows) {
-            const cells = row.getElementsByTagNameNS(W, 'tc');
+            const cells = Array.from(row.childNodes).filter(n => n.nodeType === 1 && n.namespaceURI === W && n.localName === 'tc');
             if (cells.length < 2) continue;
 
             const label = cells[0].textContent.trim();
@@ -196,7 +197,7 @@ async function parseDOCX(arrayBuffer) {
                 }
 
                 let currentList = null;
-                let listItems = [];
+                let listCounters = {};
                 for (const p of paragraphs) {
                     let pText = "";
                     const pPr = p.getElementsByTagNameNS(W, 'pPr')[0];
@@ -208,13 +209,29 @@ async function parseDOCX(arrayBuffer) {
                         if (drw) {
                             const blip = drw.getElementsByTagNameNS(A, 'blip')[0];
                             const rid = blip?.getAttributeNS(R, 'embed');
-                            if (rid && imgMap[rid]) pText += `<img src="data:${imgMap[rid].mime};base64,${imgMap[rid].b64}" style="max-width:100%">`;
+                            if (rid && imgMap[rid]) {
+                                if (!currentQ.imgRidToName[rid]) {
+                                    const imgInfo = imgMap[rid];
+                                    const ext = imgInfo.mime.split('/')[1];
+                                    const idx = currentQ.images.length;
+                                    const imgName = idx === 0 ? `image.${ext}` : `image (${idx}).${ext}`;
+                                    currentQ.images.push({ name: imgName, b64: imgInfo.b64 });
+                                    currentQ.imgRidToName[rid] = imgName;
+                                }
+                                const imgName = currentQ.imgRidToName[rid];
+                                pText += `<img src="@@PLUGINFILE@@/${encodeURIComponent(imgName)}" alt="" role="presentation" class="img-fluid">`;
+                            }
                         }
-                        const t = r.getElementsByTagNameNS(W, 't')[0];
-                        if (t) {
-                            let s = escXml(t.textContent);
-                            if (r.getElementsByTagNameNS(W, 'b').length) s = `<b>${s}</b>`;
-                            pText += s;
+                        const bEl = r.getElementsByTagNameNS(W, 'b')[0];
+                        const bold = bEl !== undefined && bEl.getAttributeNS(W, 'val') !== '0';
+                        for (const child of r.childNodes) {
+                            if (child.localName === 'br' && child.namespaceURI === W) {
+                                pText += '<br>';
+                            } else if (child.localName === 't' && child.namespaceURI === W) {
+                                let s = escXml(child.textContent);
+                                if (bold) s = `<b>${s}</b>`;
+                                pText += s;
+                            }
                         }
                     }
 
@@ -227,31 +244,28 @@ async function parseDOCX(arrayBuffer) {
                             if (!currentList || currentList !== numId) {
                                 if (currentList) {
                                     const prevFmt = numMap[currentList];
-                                    const closeTag = (prevFmt === 'bullet') ? '</ul>' : '</ol>';
-                                    rowHtml += closeTag;
-                                    listItems = [];
+                                    rowHtml += (prevFmt === 'bullet') ? '</ul>' : '</ol>';
                                 }
+                                if (!listCounters[numId]) listCounters[numId] = 0;
                                 let openTag;
                                 if (numFmt === 'bullet') {
                                     openTag = '<ul>';
                                 } else {
                                     const listType = numFmt === 'upperRoman' ? 'I' : '1';
-                                    openTag = `<ol type="${listType}" start="1">`;
+                                    openTag = `<ol type="${listType}" start="${listCounters[numId] + 1}">`;
                                 }
                                 rowHtml += openTag;
                                 currentList = numId;
                             }
+                            listCounters[numId] = (listCounters[numId] || 0) + 1;
                             rowHtml += `<li>${pText}</li>`;
-                            listItems.push(pText);
                             continue;
                         }
                     } else {
                         if (currentList) {
                             const fmt = numMap[currentList];
-                            const closeTag = (fmt === 'bullet') ? '</ul>' : '</ol>';
-                            rowHtml += closeTag;
+                            rowHtml += (fmt === 'bullet') ? '</ul>' : '</ol>';
                             currentList = null;
-                            listItems = [];
                         }
                     }
 
@@ -271,25 +285,67 @@ async function parseDOCX(arrayBuffer) {
                 }
             }
 
-            if (/ENUNCIADO/i.test(label)) { currentQ.enuncHtml = rowHtml; } 
-            else if (/^CORRETA/i.test(label)) { currentQ.alternatives.push({ html: rowHtml, fraction: 100 }); } 
-            else if (/^Incorreta/i.test(label)) { currentQ.alternatives.push({ html: rowHtml, fraction: 0 }); }
+            if (/ENUNCIADO/i.test(label)) {
+                currentQ.enuncHtml = rowHtml;
+                hasEnunciado = true;
+            } else if (/^CORRETA/i.test(label)) {
+                hasEnunciado = false;
+                currentQ.alternatives.push({ html: rowHtml, fraction: 100 });
+            } else if (/^Incorreta/i.test(label)) {
+                hasEnunciado = false;
+                currentQ.alternatives.push({ html: rowHtml, fraction: 0 });
+            } else if (hasEnunciado) {
+                // Linhas sem label reconhecido entre ENUNCIADO e CORRETA/Incorreta
+                // (ex: algarismos romanos I, II, III, IV em linhas separadas)
+                currentQ.enuncHtml += rowHtml;
+            }
         }
         if (currentQ.enuncHtml && currentQ.alternatives.length > 0) questions.push(currentQ);
     }
     return questions;
 }
 
+function wrapAnswerHtml(html) {
+    const processed = processLists(html);
+    // Se já tem tags de bloco, usa direto; senão envolve em <p>
+    if (/<(p|ol|ul|img)\b/i.test(processed)) return processed;
+    // Converte <span>texto</span><br> → <p dir="ltr" style="text-align: left;">texto<br></p>
+    return processed.replace(/<span>([\s\S]*?)<\/span><br>/g,
+        '<p dir="ltr" style="text-align: left;">$1<br></p>');
+}
+
 function buildXML(questions) {
     let x = `<?xml version="1.0" encoding="UTF-8"?>\n<quiz>\n`;
     questions.forEach((q, i) => {
-        x += `<question type="multichoice">\n<name><text>Q${(i+1).toString().padStart(2,'0')}</text></name>\n`;
-        x += `<questiontext format="html"><text><![CDATA[${processLists(q.enuncHtml)}]]></text></questiontext>\n`;
-        x += `<single>true</single><shuffleanswers>true</shuffleanswers><answernumbering>abc</answernumbering>\n`;
+        const num = (i + 1).toString().padStart(2, '0');
+        x += `  <question type="multichoice">\n`;
+        x += `    <name>\n      <text>Q${num}</text>\n    </name>\n`;
+        x += `    <questiontext format="html">\n      <text><![CDATA[${processLists(q.enuncHtml)}]]></text>\n    </questiontext>\n`;
+        x += `    <generalfeedback format="html">\n      <text></text>\n    </generalfeedback>\n`;
+        x += `    <defaultgrade>1.0000000</defaultgrade>\n`;
+        x += `    <penalty>0.3333333</penalty>\n`;
+        x += `    <hidden>0</hidden>\n`;
+        x += `    <idnumber></idnumber>\n`;
+        x += `    <single>true</single>\n`;
+        x += `    <shuffleanswers>true</shuffleanswers>\n`;
+        x += `    <answernumbering>abc</answernumbering>\n`;
+        x += `    <showstandardinstruction>0</showstandardinstruction>\n`;
+        x += `    <correctfeedback format="html">\n      <text>Sua resposta est&#225; correta.</text>\n    </correctfeedback>\n`;
+        x += `    <partiallycorrectfeedback format="html">\n      <text>Sua resposta est&#225; parcialmente correta.</text>\n    </partiallycorrectfeedback>\n`;
+        x += `    <incorrectfeedback format="html">\n      <text>Sua resposta est&#225; incorreta.</text>\n    </incorrectfeedback>\n`;
+        x += `    <shownumcorrect/>\n`;
         q.alternatives.forEach(alt => {
-            x += `<answer fraction="${alt.fraction}" format="html"><text><![CDATA[${processLists(alt.html)}]]></text></answer>\n`;
+            x += `    <answer fraction="${alt.fraction}" format="html">\n`;
+            x += `      <text><![CDATA[${wrapAnswerHtml(alt.html)}]]></text>\n`;
+            x += `      <feedback format="html">\n        <text></text>\n      </feedback>\n`;
+            x += `    </answer>\n`;
         });
-        x += `</question>\n`;
+        if (q.images && q.images.length > 0) {
+            q.images.forEach(img => {
+                x += `    <file name="${escXml(img.name)}" path="/" encoding="base64">${img.b64}</file>\n`;
+            });
+        }
+        x += `  </question>\n`;
     });
     return x + `</quiz>`;
 }
