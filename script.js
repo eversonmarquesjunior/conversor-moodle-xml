@@ -4,24 +4,36 @@ const W='http://schemas.openxmlformats.org/wordprocessingml/2006/main',
       R='http://schemas.openxmlformats.org/officeDocument/2006/relationships', 
       REL_NS='http://schemas.openxmlformats.org/package/2006/relationships';
 
-const dropZone = document.getElementById('dz');
-
-// Event Listeners para Drag and Drop
-['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => { 
-    dropZone.addEventListener(eventName, preventDefaults, false); 
-});
+const dropOverlay = document.getElementById('drop-overlay');
 
 function preventDefaults(e) { e.preventDefault(); e.stopPropagation(); }
 
-['dragenter', 'dragover'].forEach(eventName => { 
-    dropZone.addEventListener(eventName, () => dropZone.classList.add('drag-over'), false); 
+// Drag and drop funciona na página inteira (qualquer ponto), não só no quadrado
+['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+    window.addEventListener(eventName, preventDefaults, false);
 });
 
-['dragleave', 'drop'].forEach(eventName => { 
-    dropZone.addEventListener(eventName, () => dropZone.classList.remove('drag-over'), false); 
+let dragCounter = 0;
+
+window.addEventListener('dragenter', () => {
+    dragCounter++;
+    dropOverlay.classList.add('active');
 });
 
-dropZone.addEventListener('drop', (e) => { handleFiles(e.dataTransfer.files); }, false);
+window.addEventListener('dragleave', () => {
+    dragCounter--;
+    if (dragCounter <= 0) {
+        dragCounter = 0;
+        dropOverlay.classList.remove('active');
+    }
+});
+
+window.addEventListener('drop', (e) => {
+    dragCounter = 0;
+    dropOverlay.classList.remove('active');
+    handleFiles(e.dataTransfer.files);
+});
+
 document.getElementById('fi').onchange = e => handleFiles(e.target.files);
 
 function handleFiles(files) {
@@ -205,6 +217,7 @@ async function parseDOCX(arrayBuffer) {
                     const hasAfterSpacing = spacing?.getAttributeNS(W, 'after');
 
                     for (const r of p.getElementsByTagNameNS(W, 'r')) {
+                        let runHtml = "";
                         const drw = r.getElementsByTagNameNS(W, 'drawing')[0];
                         if (drw) {
                             const blip = drw.getElementsByTagNameNS(A, 'blip')[0];
@@ -219,20 +232,34 @@ async function parseDOCX(arrayBuffer) {
                                     currentQ.imgRidToName[rid] = imgName;
                                 }
                                 const imgName = currentQ.imgRidToName[rid];
-                                pText += `<img src="@@PLUGINFILE@@/${encodeURIComponent(imgName)}" alt="" role="presentation" class="img-fluid">`;
+                                runHtml += `<img src="@@PLUGINFILE@@/${encodeURIComponent(imgName)}" alt="" role="presentation" class="img-fluid">`;
                             }
                         }
                         const bEl = r.getElementsByTagNameNS(W, 'b')[0];
                         const bold = bEl !== undefined && bEl.getAttributeNS(W, 'val') !== '0';
                         for (const child of r.childNodes) {
                             if (child.localName === 'br' && child.namespaceURI === W) {
-                                pText += '<br>';
+                                runHtml += '<br>';
                             } else if (child.localName === 't' && child.namespaceURI === W) {
                                 let s = escXml(child.textContent);
                                 if (bold) s = `<b>${s}</b>`;
-                                pText += s;
+                                runHtml += s;
                             }
                         }
+                        // Se o run estiver dentro de um w:hyperlink, envolve em <a href>
+                        let anc = r.parentNode;
+                        while (anc && anc !== p) {
+                            if (anc.namespaceURI === W && anc.localName === 'hyperlink') {
+                                const hRid = anc.getAttributeNS(R, 'id');
+                                const target = hRid && relMap[hRid];
+                                if (target && runHtml) {
+                                    runHtml = `<a href="${escXml(target)}">${runHtml}</a>`;
+                                }
+                                break;
+                            }
+                            anc = anc.parentNode;
+                        }
+                        pText += runHtml;
                     }
 
                     const numPr = pPr?.getElementsByTagNameNS(W, 'numPr')[0];
@@ -314,13 +341,25 @@ function wrapAnswerHtml(html) {
         '<p dir="ltr" style="text-align: left;">$1<br></p>');
 }
 
+function fileTagsFor(html, images) {
+    if (!images || images.length === 0) return "";
+    let tags = "";
+    images.forEach(img => {
+        if (html.includes(`@@PLUGINFILE@@/${encodeURIComponent(img.name)}`)) {
+            tags += `      <file name="${escXml(img.name)}" path="/" encoding="base64">${img.b64}</file>\n`;
+        }
+    });
+    return tags;
+}
+
 function buildXML(questions) {
     let x = `<?xml version="1.0" encoding="UTF-8"?>\n<quiz>\n`;
     questions.forEach((q, i) => {
         const num = (i + 1).toString().padStart(2, '0');
         x += `  <question type="multichoice">\n`;
         x += `    <name>\n      <text>Q${num}</text>\n    </name>\n`;
-        x += `    <questiontext format="html">\n      <text><![CDATA[${processLists(q.enuncHtml)}]]></text>\n    </questiontext>\n`;
+        const enuncHtml = processLists(q.enuncHtml);
+        x += `    <questiontext format="html">\n      <text><![CDATA[${enuncHtml}]]></text>\n${fileTagsFor(enuncHtml, q.images)}    </questiontext>\n`;
         x += `    <generalfeedback format="html">\n      <text></text>\n    </generalfeedback>\n`;
         x += `    <defaultgrade>1.0000000</defaultgrade>\n`;
         x += `    <penalty>0.3333333</penalty>\n`;
@@ -335,16 +374,13 @@ function buildXML(questions) {
         x += `    <incorrectfeedback format="html">\n      <text>Sua resposta est&#225; incorreta.</text>\n    </incorrectfeedback>\n`;
         x += `    <shownumcorrect/>\n`;
         q.alternatives.forEach(alt => {
+            const altHtml = wrapAnswerHtml(alt.html);
             x += `    <answer fraction="${alt.fraction}" format="html">\n`;
-            x += `      <text><![CDATA[${wrapAnswerHtml(alt.html)}]]></text>\n`;
+            x += `      <text><![CDATA[${altHtml}]]></text>\n`;
+            x += fileTagsFor(altHtml, q.images);
             x += `      <feedback format="html">\n        <text></text>\n      </feedback>\n`;
             x += `    </answer>\n`;
         });
-        if (q.images && q.images.length > 0) {
-            q.images.forEach(img => {
-                x += `    <file name="${escXml(img.name)}" path="/" encoding="base64">${img.b64}</file>\n`;
-            });
-        }
         x += `  </question>\n`;
     });
     return x + `</quiz>`;
