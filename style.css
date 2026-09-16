@@ -218,6 +218,14 @@ h1{
 .toast.success{background:var(--green);color:#0a2a1f}
 .toast.error{background:var(--red)}
 
+.toast-list{
+    max-width:420px;
+    text-align:left;
+    line-height:1.5;
+    font-weight:500;
+}
+.toast-list strong{font-weight:700;display:block;margin-bottom:4px}
+
 @keyframes slideIn{
     from{transform:translateX(100%);opacity:0}
     to{transform:translateX(0);opacity:1}

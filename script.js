@@ -1,4 +1,4 @@
-let filesData = [];
+﻿let filesData = [];
 const W='http://schemas.openxmlformats.org/wordprocessingml/2006/main', 
       A='http://schemas.openxmlformats.org/drawingml/2006/main', 
       R='http://schemas.openxmlformats.org/officeDocument/2006/relationships', 
@@ -76,12 +76,49 @@ function showToast(msg, type) {
     }, 3000);
 }
 
-function escXml(s) { 
-    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); 
+function escXml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function levenshtein(a, b) {
+    const m = a.length, n = b.length;
+    const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+    for (let i = 0; i <= m; i++) dp[i][0] = i;
+    for (let j = 0; j <= n; j++) dp[0][j] = j;
+    for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+            dp[i][j] = a[i - 1] === b[j - 1]
+                ? dp[i - 1][j - 1]
+                : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+        }
+    }
+    return dp[m][n];
+}
+
+// Tolera erros comuns de digitação no rótulo "ENUNCIADO" (ex: "ENUNCIA DO", "ENUNCIDO")
+function isEnunciadoLabel(label) {
+    const norm = String(label).toUpperCase().replace(/\s+/g, '');
+    if (norm.includes('ENUNCIADO')) return true;
+    return norm.length > 0 && norm.length <= 12 && levenshtein(norm, 'ENUNCIADO') <= 1;
+}
+
+function textSnippet(html, maxLen = 90) {
+    const text = String(html).replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+    return text.length > maxLen ? text.slice(0, maxLen) + '…' : text;
+}
+
+// Tabela aninhada = está dentro da célula de outra tabela (ex: tabela de apoio/dados dentro do enunciado)
+function isNestedTable(tbl, docXml) {
+    let node = tbl.parentNode;
+    while (node && node !== docXml) {
+        if (node.namespaceURI === W && node.localName === 'tbl') return true;
+        node = node.parentNode;
+    }
+    return false;
 }
 
 function processLists(html) {
-    // Process numbered lists (1., 2., 3. etc.)
+    // Process numbered lists (1., 2., 3. etc.) digitadas manualmente como texto
     html = html.replace(/(<span>(\d+)\.\s*([^<]*?)<\/span><br>\s*)+/g, (match) => {
         const items = match.match(/<span>(\d+)\.\s*([^<]*?)<\/span><br>/g);
         if (items && items.length > 1) {
@@ -95,40 +132,6 @@ function processLists(html) {
             });
             ol += '</ol>';
             return ol;
-        }
-        return match;
-    });
-    // Process upper case Roman lists (I., II., etc.)
-    html = html.replace(/(<p><!--\[if !supportLists\]-->[IVXLCDM]+\.&nbsp;([^<]*?)<\/p>\s*)+/g, (match) => {
-        const items = match.match(/<p><!--\[if !supportLists\]-->[IVXLCDM]+\.&nbsp;([^<]*?)<\/p>/g);
-        if (items && items.length > 1) {
-            let ol = '<ol type="I">';
-            items.forEach(item => {
-                const match = item.match(/<p><!--\[if !supportLists\]-->[IVXLCDM]+\.&nbsp;([^<]*?)<\/p>/);
-                if (match) {
-                    const text = match[1];
-                    ol += `<li>${text}</li>`;
-                }
-            });
-            ol += '</ol>';
-            return ol;
-        }
-        return match;
-    });
-    // Process bullet lists (•, -, etc.)
-    html = html.replace(/(<p><!--\[if !supportLists\]-->•&nbsp;([^<]*?)<\/p>\s*)+/g, (match) => {
-        const items = match.match(/<p><!--\[if !supportLists\]-->•&nbsp;([^<]*?)<\/p>/g);
-        if (items && items.length > 1) {
-            let ul = '<ul>';
-            items.forEach(item => {
-                const match = item.match(/<p><!--\[if !supportLists\]-->•&nbsp;([^<]*?)<\/p>/);
-                if (match) {
-                    const text = match[1];
-                    ul += `<li>${text}</li>`;
-                }
-            });
-            ul += '</ul>';
-            return ul;
         }
         return match;
     });
@@ -186,10 +189,32 @@ async function parseDOCX(arrayBuffer) {
         }
     }
     const questions = [];
+    const errors = [];
 
-    for (const tbl of docXml.getElementsByTagNameNS(W, 'tbl')) {
-        let currentQ = { enuncHtml: "", alternatives: [], images: [], imgRidToName: {} };
-        let hasEnunciado = false;
+    function finalizeQuestion(q) {
+        if (!q) return;
+        const hasContent = q.enuncHtml || q.alternatives.length > 0;
+        if (!hasContent) return;
+        if (q.enuncHtml && q.alternatives.length > 0) {
+            questions.push(q);
+            return;
+        }
+        const reason = (!q.enuncHtml && q.alternatives.length > 0)
+            ? 'alternativa(s) encontrada(s) sem enunciado (rótulo "ENUNCIADO" ausente ou não reconhecido)'
+            : 'enunciado encontrado sem nenhuma alternativa "Correta"/"Incorreta"';
+        const snippetSource = q.enuncHtml || (q.alternatives[0] && q.alternatives[0].html) || "";
+        errors.push({ reason, snippet: textSnippet(snippetSource) });
+    }
+
+    let currentQ = null;
+    let hasEnunciado = false;
+
+    // Ignora tabelas aninhadas (de apoio, dentro de célula) e junta tabelas consecutivas
+    // que pertencem à mesma questão (ex: quebra de página no Word dividiu a tabela original)
+    const tables = Array.from(docXml.getElementsByTagNameNS(W, 'tbl'))
+        .filter(tbl => !isNestedTable(tbl, docXml));
+
+    for (const tbl of tables) {
         const rows = Array.from(tbl.childNodes).filter(n => n.nodeType === 1 && n.namespaceURI === W && n.localName === 'tr');
 
         for (const row of rows) {
@@ -197,6 +222,15 @@ async function parseDOCX(arrayBuffer) {
             if (cells.length < 2) continue;
 
             const label = cells[0].textContent.trim();
+
+            if (isEnunciadoLabel(label)) {
+                if (currentQ) finalizeQuestion(currentQ);
+                currentQ = { enuncHtml: "", alternatives: [], images: [], imgRidToName: {} };
+                hasEnunciado = true;
+            } else if (!currentQ) {
+                currentQ = { enuncHtml: "", alternatives: [], images: [], imgRidToName: {} };
+            }
+
             let rowHtml = "";
 
             for (let i = 1; i < cells.length; i++) {
@@ -312,24 +346,30 @@ async function parseDOCX(arrayBuffer) {
                 }
             }
 
-            if (/ENUNCIADO/i.test(label)) {
+            if (isEnunciadoLabel(label)) {
                 currentQ.enuncHtml = rowHtml;
-                hasEnunciado = true;
             } else if (/^CORRETA/i.test(label)) {
                 hasEnunciado = false;
+                if (currentQ.alternatives.some(alt => alt.fraction === 100)) {
+                    errors.push({
+                        reason: 'questão com mais de uma alternativa "Correta" (possível mistura de duas questões)',
+                        snippet: textSnippet(currentQ.enuncHtml || rowHtml)
+                    });
+                }
                 currentQ.alternatives.push({ html: rowHtml, fraction: 100 });
             } else if (/^Incorreta/i.test(label)) {
                 hasEnunciado = false;
                 currentQ.alternatives.push({ html: rowHtml, fraction: 0 });
             } else if (hasEnunciado) {
                 // Linhas sem label reconhecido entre ENUNCIADO e CORRETA/Incorreta
-                // (ex: algarismos romanos I, II, III, IV em linhas separadas)
+                // (ex: algarismos romanos I, II, III, IV em linhas separadas, ou continuação
+                // do enunciado numa tabela seguinte por causa de quebra de página)
                 currentQ.enuncHtml += rowHtml;
             }
         }
-        if (currentQ.enuncHtml && currentQ.alternatives.length > 0) questions.push(currentQ);
     }
-    return questions;
+    finalizeQuestion(currentQ);
+    return { questions, errors };
 }
 
 function wrapAnswerHtml(html) {
@@ -386,16 +426,37 @@ function buildXML(questions) {
     return x + `</quiz>`;
 }
 
+function showConversionErrors(errors) {
+    const multiFile = new Set(errors.map(e => e.file)).size > 1;
+    const maxShown = 8;
+    const shown = errors.slice(0, maxShown);
+    const lines = shown.map((e, i) => {
+        const prefix = multiFile ? `${escXml(e.file)} — ` : '';
+        return `${i + 1}. ${prefix}${escXml(e.reason)}: "${escXml(e.snippet)}"`;
+    });
+    if (errors.length > maxShown) lines.push(`+ ${errors.length - maxShown} outra(s) questão(ões) com problema`);
+    const t = document.createElement('div');
+    t.className = 'toast error toast-list';
+    t.innerHTML = `<strong>${errors.length} questão(ões) não convertida(s):</strong><br>${lines.join('<br>')}`;
+    document.getElementById('toast-container').appendChild(t);
+    setTimeout(() => {
+        t.style.opacity = '0';
+        setTimeout(() => t.remove(), 400);
+    }, 12000);
+}
+
 async function doConvert() {
     const btn = document.getElementById('bcvt');
     btn.disabled = true;
     try {
         let total = 0;
+        const allErrors = [];
         if (filesData.length === 1) {
             const f = filesData[0];
-            const qs = await parseDOCX(f.buffer);
-            total = qs.length;
-            const xmlString = "\ufeff" + buildXML(qs);
+            const { questions, errors } = await parseDOCX(f.buffer);
+            total = questions.length;
+            errors.forEach(e => allErrors.push({ file: f.name, ...e }));
+            const xmlString = "\ufeff" + buildXML(questions);
             const blob = new Blob([xmlString], {type: 'text/xml;charset=utf-8'});
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
@@ -404,9 +465,10 @@ async function doConvert() {
         } else {
             const zip = new JSZip();
             for (const f of filesData) {
-                const qs = await parseDOCX(f.buffer);
-                total += qs.length;
-                zip.file(f.name.replace('.docx','.xml'), "\ufeff" + buildXML(qs));
+                const { questions, errors } = await parseDOCX(f.buffer);
+                total += questions.length;
+                errors.forEach(e => allErrors.push({ file: f.name, ...e }));
+                zip.file(f.name.replace('.docx','.xml'), "\ufeff" + buildXML(questions));
             }
             const blob = await zip.generateAsync({type:'blob'});
             const a = document.createElement('a');
@@ -415,7 +477,8 @@ async function doConvert() {
             a.click();
         }
         showToast(`Download de ${total} questões finalizado!`, "success");
-    } catch (e) { 
+        if (allErrors.length > 0) showConversionErrors(allErrors);
+    } catch (e) {
         console.error(e);
         showToast("Erro na conversão", "error"); 
     } finally { 
