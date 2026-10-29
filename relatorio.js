@@ -188,12 +188,18 @@ function gerarRelatorio(res) {
     // numeração das questões (quando o Word tem títulos "Questão N")
     const nums = qs.filter(q => q.titulo).map(q => q.titulo.n);
     if (nums.length >= Math.max(2, qs.length / 2)) {
-        const rep = [...new Set(nums.filter((n, i) => nums.indexOf(n) !== i))];
-        const miss = [];
-        for (let k = Math.min(...nums); k <= Math.max(...nums); k++) if (!nums.includes(k)) miss.push(k);
+        // a numeração que volta para 1 começa um novo bloco (várias atividades no mesmo Word)
+        const blocos = [];
+        nums.forEach((n, i) => { if (i === 0 || n === 1) blocos.push([]); blocos[blocos.length - 1].push(n); });
         const fmt = n => 'Questão ' + String(n).padStart(2, '0');
-        if (rep.length) R.global.push(['erro', `Numeração repetida: ${rep.map(fmt).join(', ')} aparece${rep.length > 1 ? 'm' : ''} mais de uma vez.`]);
-        if (miss.length) R.global.push(['erro', `Numeração pulada: falta${miss.length > 1 ? 'm' : ''} ${miss.map(fmt).join(', ')}.`]);
+        blocos.forEach((b, bi) => {
+            const onde = blocos.length > 1 ? ` no ${bi + 1}º bloco de questões` : '';
+            const rep = [...new Set(b.filter((n, i) => b.indexOf(n) !== i))];
+            const miss = [];
+            for (let k = Math.min(...b); k <= Math.max(...b); k++) if (!b.includes(k)) miss.push(k);
+            if (rep.length) R.global.push(['erro', `Numeração repetida${onde}: ${rep.map(fmt).join(', ')} aparece${rep.length > 1 ? 'm' : ''} mais de uma vez.`]);
+            if (miss.length) R.global.push(['erro', `Numeração pulada${onde}: falta${miss.length > 1 ? 'm' : ''} ${miss.map(fmt).join(', ')}.`]);
+        });
     }
 
     res.errors.forEach(e => R.global.push(['erro', `Questão não convertida — ${e.reason}: “${e.snippet}”`]));
