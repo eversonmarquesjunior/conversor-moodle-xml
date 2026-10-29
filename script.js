@@ -1,7 +1,6 @@
 ﻿let filesData = [];
-const W='http://schemas.openxmlformats.org/wordprocessingml/2006/main', 
-      A='http://schemas.openxmlformats.org/drawingml/2006/main', 
-      R='http://schemas.openxmlformats.org/officeDocument/2006/relationships', 
+const W='http://schemas.openxmlformats.org/wordprocessingml/2006/main',
+      R='http://schemas.openxmlformats.org/officeDocument/2006/relationships',
       REL_NS='http://schemas.openxmlformats.org/package/2006/relationships';
 
 const dropOverlay = document.getElementById('drop-overlay');
@@ -38,16 +37,16 @@ document.getElementById('fi').onchange = e => handleFiles(e.target.files);
 
 function handleFiles(files) {
     const filtered = [...files].filter(f => f.name.endsWith('.docx'));
-    if(filtered.length === 0) { 
-        showToast("Por favor, selecione arquivos .docx", "error"); 
-        return; 
+    if(filtered.length === 0) {
+        showToast("Por favor, selecione arquivos .docx", "error");
+        return;
     }
     let loadedCount = 0;
     filtered.forEach(f => {
         const reader = new FileReader();
         reader.onload = ev => {
             filesData.push({ name: f.name, buffer: ev.target.result });
-            document.getElementById('fl').innerHTML += `<div class="file-item"><span>📄 ${f.name}</span></div>`;
+            document.getElementById('fl').innerHTML += `<div class="file-item"><span>📄 ${escXml(f.name)}</span></div>`;
             document.getElementById('bcvt').disabled = false;
             document.getElementById('btn-clear').style.display = 'block';
             loadedCount++;
@@ -63,6 +62,7 @@ function clearFiles() {
     document.getElementById('bcvt').disabled = true;
     document.getElementById('btn-clear').style.display = 'none';
     document.getElementById('fi').value = '';
+    limparRelatorios();
     showToast("Arquivos removidos", "success");
 }
 
@@ -70,9 +70,9 @@ function showToast(msg, type) {
     const t = document.createElement('div');
     t.className = `toast ${type}`; t.innerText = msg;
     document.getElementById('toast-container').appendChild(t);
-    setTimeout(() => { 
-        t.style.opacity = '0'; 
-        setTimeout(() => t.remove(), 400); 
+    setTimeout(() => {
+        t.style.opacity = '0';
+        setTimeout(() => t.remove(), 400);
     }, 3000);
 }
 
@@ -102,9 +102,9 @@ function isEnunciadoLabel(label) {
     return norm.length > 0 && norm.length <= 12 && levenshtein(norm, 'ENUNCIADO') <= 1;
 }
 
-function textSnippet(html, maxLen = 90) {
-    const text = String(html).replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
-    return text.length > maxLen ? text.slice(0, maxLen) + '…' : text;
+function textSnippet(text, maxLen = 90) {
+    const t = norm(text);
+    return t.length > maxLen ? t.slice(0, maxLen) + '…' : t;
 }
 
 // Tabela aninhada = está dentro da célula de outra tabela (ex: tabela de apoio/dados dentro do enunciado)
@@ -117,25 +117,18 @@ function isNestedTable(tbl, docXml) {
     return false;
 }
 
-function processLists(html) {
-    // Process numbered lists (1., 2., 3. etc.) digitadas manualmente como texto
-    html = html.replace(/(<span>(\d+)\.\s*([^<]*?)<\/span><br>\s*)+/g, (match) => {
-        const items = match.match(/<span>(\d+)\.\s*([^<]*?)<\/span><br>/g);
-        if (items && items.length > 1) {
-            let ol = '<ol>';
-            items.forEach(item => {
-                const match = item.match(/<span>\d+\.\s*([^<]*?)<\/span><br>/);
-                if (match) {
-                    const text = match[1];
-                    ol += `<li>${text}</li>`;
-                }
-            });
-            ol += '</ol>';
-            return ol;
-        }
-        return match;
-    });
-    return html;
+// Título "Questão 01 (Área)" logo antes da tabela da questão, se houver
+function tituloAntes(tbl) {
+    let el = tbl.previousElementSibling;
+    for (let i = 0; el && i < 6; i++, el = el.previousElementSibling) {
+        if (el.localName === 'tbl') return null;
+        if (el.localName !== 'p') continue;
+        const t = el.textContent.trim();
+        if (!t) continue;
+        const m = t.match(/^Quest[ãa]o\s*(\d+)\s*(?:\((.*?)\))?/i);
+        return m ? { el, n: +m[1], area: (m[2] || '').trim(), texto: t } : null;
+    }
+    return null;
 }
 
 async function parseDOCX(arrayBuffer) {
@@ -149,65 +142,41 @@ async function parseDOCX(arrayBuffer) {
 
     const imgMap = {};
     for (const [rid, target] of Object.entries(relMap)) {
-        const path = 'word/' + target.replace(/^\//, '');
+        const path = 'word/' + target.replace(/^\.?\//, '').replace(/^word\//, '');
         const f = zip.file(path);
-        if (f && /png|jpg|jpeg|gif/i.test(path)) {
-            imgMap[rid] = { mime: 'image/'+path.split('.').pop(), b64: await f.async('base64') };
+        const ext = (path.split('.').pop() || '').toLowerCase();
+        if (f && /^(png|jpe?g|gif|bmp|svg|emf|wmf)$/.test(ext)) {
+            const mime = ext === 'svg' ? 'image/svg+xml' : 'image/' + (ext === 'jpg' ? 'jpeg' : ext);
+            imgMap[rid] = { ext, mime, b64: await f.async('base64') };
         }
     }
 
     const docXml = new DOMParser().parseFromString(await zip.file('word/document.xml').async('text'), 'text/xml');
-    let numberingDoc = null;
-    try {
-        const numberingXml = await zip.file('word/numbering.xml').async('text');
-        numberingDoc = new DOMParser().parseFromString(numberingXml, 'text/xml');
-    } catch (e) {
-        // No numbering.xml or parse error, skip
-    }
-    const numMap = {};
-    if (numberingDoc) {
-        for (const num of numberingDoc.getElementsByTagNameNS(W, 'num')) {
-            const numId = num.getAttributeNS(W, 'numId');
-            const abstractNumId = num.getElementsByTagNameNS(W, 'abstractNumId')[0]?.getAttributeNS(W, 'val');
-            if (abstractNumId) {
-                const abstractNums = numberingDoc.getElementsByTagNameNS(W, 'abstractNum');
-                for (const abs of abstractNums) {
-                    if (abs.getAttributeNS(W, 'abstractNumId') === abstractNumId) {
-                        const lvls = abs.getElementsByTagNameNS(W, 'lvl');
-                        for (const lvl of lvls) {
-                            if (lvl.getAttributeNS(W, 'ilvl') === '0') {
-                                const numFmtEl = lvl.getElementsByTagNameNS(W, 'numFmt')[0];
-                                const numFmt = numFmtEl?.getAttributeNS(W, 'val');
-                                numMap[numId] = numFmt;
-                                break;
-                            }
-                        }
-                        break;
-                    }
-                }
-            }
-        }
-    }
+    await carregarFormatacaoDocx(zip, relMap);
+
     const questions = [];
     const errors = [];
 
     function finalizeQuestion(q) {
         if (!q) return;
-        const hasContent = q.enuncHtml || q.alternatives.length > 0;
-        if (!hasContent) return;
-        if (q.enuncHtml && q.alternatives.length > 0) {
+        const hasEnunc = temConteudo(q.enunItems);
+        if (!hasEnunc && q.alternatives.length === 0) return;
+        if (hasEnunc && q.alternatives.length > 0) {
             questions.push(q);
             return;
         }
-        const reason = (!q.enuncHtml && q.alternatives.length > 0)
+        const reason = !hasEnunc
             ? 'alternativa(s) encontrada(s) sem enunciado (rótulo "ENUNCIADO" ausente ou não reconhecido)'
             : 'enunciado encontrado sem nenhuma alternativa "Correta"/"Incorreta"';
-        const snippetSource = q.enuncHtml || (q.alternatives[0] && q.alternatives[0].html) || "";
+        const snippetSource = hasEnunc ? textoItens(q.enunItems) : textoItens(q.alternatives[0].items);
         errors.push({ reason, snippet: textSnippet(snippetSource) });
     }
 
+    const novaQuestao = titulo => ({ enunItems: [], alternatives: [], images: [], imgRidToName: {}, ref: { enun: refVazia() }, titulo });
+
     let currentQ = null;
     let hasEnunciado = false;
+    const titulosUsados = new Set();
 
     // Ignora tabelas aninhadas (de apoio, dentro de célula) e junta tabelas consecutivas
     // que pertencem à mesma questão (ex: quebra de página no Word dividiu a tabela original)
@@ -215,6 +184,8 @@ async function parseDOCX(arrayBuffer) {
         .filter(tbl => !isNestedTable(tbl, docXml));
 
     for (const tbl of tables) {
+        let titulo = tituloAntes(tbl);
+        if (titulo && titulosUsados.has(titulo.el)) titulo = null;
         const rows = Array.from(tbl.childNodes).filter(n => n.nodeType === 1 && n.namespaceURI === W && n.localName === 'tr');
 
         for (const row of rows) {
@@ -225,160 +196,84 @@ async function parseDOCX(arrayBuffer) {
 
             if (isEnunciadoLabel(label)) {
                 if (currentQ) finalizeQuestion(currentQ);
-                currentQ = { enuncHtml: "", alternatives: [], images: [], imgRidToName: {} };
+                currentQ = novaQuestao(titulo);
+                if (titulo) titulosUsados.add(titulo.el);
                 hasEnunciado = true;
             } else if (!currentQ) {
-                currentQ = { enuncHtml: "", alternatives: [], images: [], imgRidToName: {} };
+                currentQ = novaQuestao(null);
             }
 
-            let rowHtml = "";
-
-            for (let i = 1; i < cells.length; i++) {
-                const cell = cells[i];
-                const paragraphs = cell.getElementsByTagNameNS(W, 'p');
-                
-                if (cell.textContent.trim() === "" && paragraphs.length === 0) {
-                    rowHtml += "<br>";
-                    continue;
-                }
-
-                let currentList = null;
-                let listCounters = {};
-                for (const p of paragraphs) {
-                    let pText = "";
-                    const pPr = p.getElementsByTagNameNS(W, 'pPr')[0];
-                    const spacing = pPr?.getElementsByTagNameNS(W, 'spacing')[0];
-                    const hasAfterSpacing = spacing?.getAttributeNS(W, 'after');
-
-                    for (const r of p.getElementsByTagNameNS(W, 'r')) {
-                        let runHtml = "";
-                        const drw = r.getElementsByTagNameNS(W, 'drawing')[0];
-                        if (drw) {
-                            const blip = drw.getElementsByTagNameNS(A, 'blip')[0];
-                            const rid = blip?.getAttributeNS(R, 'embed');
-                            if (rid && imgMap[rid]) {
-                                if (!currentQ.imgRidToName[rid]) {
-                                    const imgInfo = imgMap[rid];
-                                    const ext = imgInfo.mime.split('/')[1];
-                                    const idx = currentQ.images.length;
-                                    const imgName = idx === 0 ? `image.${ext}` : `image (${idx}).${ext}`;
-                                    currentQ.images.push({ name: imgName, b64: imgInfo.b64 });
-                                    currentQ.imgRidToName[rid] = imgName;
-                                }
-                                const imgName = currentQ.imgRidToName[rid];
-                                runHtml += `<img src="@@PLUGINFILE@@/${encodeURIComponent(imgName)}" alt="" role="presentation" class="img-fluid">`;
-                            }
-                        }
-                        const bEl = r.getElementsByTagNameNS(W, 'b')[0];
-                        const bold = bEl !== undefined && bEl.getAttributeNS(W, 'val') !== '0';
-                        for (const child of r.childNodes) {
-                            if (child.localName === 'br' && child.namespaceURI === W) {
-                                runHtml += '<br>';
-                            } else if (child.localName === 't' && child.namespaceURI === W) {
-                                let s = escXml(child.textContent);
-                                if (bold) s = `<b>${s}</b>`;
-                                runHtml += s;
-                            }
-                        }
-                        // Se o run estiver dentro de um w:hyperlink, envolve em <a href>
-                        let anc = r.parentNode;
-                        while (anc && anc !== p) {
-                            if (anc.namespaceURI === W && anc.localName === 'hyperlink') {
-                                const hRid = anc.getAttributeNS(R, 'id');
-                                const target = hRid && relMap[hRid];
-                                if (target && runHtml) {
-                                    runHtml = `<a href="${escXml(target)}">${runHtml}</a>`;
-                                }
-                                break;
-                            }
-                            anc = anc.parentNode;
-                        }
-                        pText += runHtml;
-                    }
-
-                    const numPr = pPr?.getElementsByTagNameNS(W, 'numPr')[0];
-                    if (numPr) {
-                        const ilvl = numPr.getElementsByTagNameNS(W, 'ilvl')[0]?.getAttributeNS(W, 'val');
-                        const numId = numPr.getElementsByTagNameNS(W, 'numId')[0]?.getAttributeNS(W, 'val');
-                        const numFmt = numMap[numId];
-                        if (ilvl === '0' && (numFmt === 'upperRoman' || numFmt === 'decimal' || numFmt === 'bullet')) {
-                            if (!currentList || currentList !== numId) {
-                                if (currentList) {
-                                    const prevFmt = numMap[currentList];
-                                    rowHtml += (prevFmt === 'bullet') ? '</ul>' : '</ol>';
-                                }
-                                if (!listCounters[numId]) listCounters[numId] = 0;
-                                let openTag;
-                                if (numFmt === 'bullet') {
-                                    openTag = '<ul>';
-                                } else {
-                                    const listType = numFmt === 'upperRoman' ? 'I' : '1';
-                                    openTag = `<ol type="${listType}" start="${listCounters[numId] + 1}">`;
-                                }
-                                rowHtml += openTag;
-                                currentList = numId;
-                            }
-                            listCounters[numId] = (listCounters[numId] || 0) + 1;
-                            rowHtml += `<li>${pText}</li>`;
-                            continue;
-                        }
-                    } else {
-                        if (currentList) {
-                            const fmt = numMap[currentList];
-                            rowHtml += (fmt === 'bullet') ? '</ul>' : '</ol>';
-                            currentList = null;
-                        }
-                    }
-
-                    if (pText.trim()) {
-                        rowHtml += `<span>${pText}</span><br>`;
-                        if (hasAfterSpacing && parseInt(hasAfterSpacing) > 0) {
-                            rowHtml += "<br>";
-                        }
-                    } else {
-                        rowHtml += "<br>";
-                    }
-                }
-                if (currentList) {
-                    const fmt = numMap[currentList];
-                    const closeTag = (fmt === 'bullet') ? '</ul>' : '</ol>';
-                    rowHtml += closeTag;
-                }
+            // Conteúdo da linha: parágrafos e tabelas com a formatação do Word,
+            // e uma leitura à parte do texto, usada no relatório para conferir o XML
+            const items = [];
+            const ref = refVazia();
+            for (const cell of cells.slice(1)) {
+                lerConteudo(cell, items);
+                extrairTextoWord(cell, ref);
             }
 
             if (isEnunciadoLabel(label)) {
-                currentQ.enuncHtml = rowHtml;
+                currentQ.enunItems = items;
+                currentQ.ref.enun = ref;
             } else if (/^CORRETA/i.test(label)) {
                 hasEnunciado = false;
-                if (currentQ.alternatives.some(alt => alt.fraction === 100)) {
-                    errors.push({
-                        reason: 'questão com mais de uma alternativa "Correta" (possível mistura de duas questões)',
-                        snippet: textSnippet(currentQ.enuncHtml || rowHtml)
-                    });
-                }
-                currentQ.alternatives.push({ html: rowHtml, fraction: 100 });
+                currentQ.alternatives.push({ items, ref, fraction: 100 });
             } else if (/^Incorreta/i.test(label)) {
                 hasEnunciado = false;
-                currentQ.alternatives.push({ html: rowHtml, fraction: 0 });
+                currentQ.alternatives.push({ items, ref, fraction: 0 });
             } else if (hasEnunciado) {
                 // Linhas sem label reconhecido entre ENUNCIADO e CORRETA/Incorreta
                 // (ex: algarismos romanos I, II, III, IV em linhas separadas, ou continuação
                 // do enunciado numa tabela seguinte por causa de quebra de página)
-                currentQ.enuncHtml += rowHtml;
+                currentQ.enunItems.push(...items);
+                somarRef(currentQ.ref.enun, ref);
             }
         }
     }
     finalizeQuestion(currentQ);
-    return { questions, errors };
+
+    for (const q of questions) await montarQuestao(q, imgMap);
+
+    const revisoes = {
+        ins: docXml.getElementsByTagNameNS(W, 'ins').length,
+        del: docXml.getElementsByTagNameNS(W, 'del').length,
+        comentarios: docXml.getElementsByTagNameNS(W, 'commentReference').length
+    };
+    return { questions, errors, doc: { revisoes } };
 }
 
-function wrapAnswerHtml(html) {
-    const processed = processLists(html);
-    // Se já tem tags de bloco, usa direto; senão envolve em <p>
-    if (/<(p|ol|ul|img)\b/i.test(processed)) return processed;
-    // Converte <span>texto</span><br> → <p dir="ltr" style="text-align: left;">texto<br></p>
-    return processed.replace(/<span>([\s\S]*?)<\/span><br>/g,
-        '<p dir="ltr" style="text-align: left;">$1<br></p>');
+// Gera o HTML final da questão: espaçamento do Word, equações como imagem e imagens anexadas
+async function montarQuestao(q, imgMap) {
+    q.midiaDescartada = [];
+    q.eqFalhas = [];
+    let eqN = 0;
+    const registrar = (name, b64, mime) => q.images.push({ name, b64, mime });
+    const finalizar = async html => {
+        const r = await resolverEquacoes(html, () => `equacao_${++eqN}.png`, registrar);
+        q.eqFalhas.push(...r.falhas);
+        return resolverImagens(r.html, q, imgMap);
+    };
+    q.enuncHtml = await finalizar(montarEnunciado(q.enunItems, { minGap: FONT_SINGLE }));
+    for (const alt of q.alternatives) alt.html = await finalizar(montarAlternativa(alt.items));
+}
+
+function resolverImagens(html, q, imgMap) {
+    return html.replace(/<img data-rid="([^"]*)" data-cx="(\d*)">/g, (tag, rid, cx) => {
+        const imgInfo = imgMap[rid];
+        if (!imgInfo || /^(emf|wmf)$/.test(imgInfo.ext)) {
+            q.midiaDescartada.push(imgInfo ? 'emf' : 'ausente');
+            return '';
+        }
+        if (!q.imgRidToName[rid]) {
+            const idx = q.images.length;
+            const imgName = idx === 0 ? `image.${imgInfo.ext}` : `image (${idx}).${imgInfo.ext}`;
+            q.images.push({ name: imgName, b64: imgInfo.b64, mime: imgInfo.mime });
+            q.imgRidToName[rid] = imgName;
+        }
+        const imgName = q.imgRidToName[rid];
+        const width = +cx ? ` width="${Math.round(cx / 9525)}"` : '';
+        return `<img src="@@PLUGINFILE@@/${encodeURIComponent(imgName)}" alt="" role="presentation" class="img-fluid"${width}>`;
+    });
 }
 
 function fileTagsFor(html, images) {
@@ -398,8 +293,7 @@ function buildXML(questions) {
         const num = (i + 1).toString().padStart(2, '0');
         x += `  <question type="multichoice">\n`;
         x += `    <name>\n      <text>Q${num}</text>\n    </name>\n`;
-        const enuncHtml = processLists(q.enuncHtml);
-        x += `    <questiontext format="html">\n      <text><![CDATA[${enuncHtml}]]></text>\n${fileTagsFor(enuncHtml, q.images)}    </questiontext>\n`;
+        x += `    <questiontext format="html">\n      <text><![CDATA[${q.enuncHtml}]]></text>\n${fileTagsFor(q.enuncHtml, q.images)}    </questiontext>\n`;
         x += `    <generalfeedback format="html">\n      <text></text>\n    </generalfeedback>\n`;
         x += `    <defaultgrade>1.0000000</defaultgrade>\n`;
         x += `    <penalty>0.3333333</penalty>\n`;
@@ -414,10 +308,9 @@ function buildXML(questions) {
         x += `    <incorrectfeedback format="html">\n      <text>Sua resposta est&#225; incorreta.</text>\n    </incorrectfeedback>\n`;
         x += `    <shownumcorrect/>\n`;
         q.alternatives.forEach(alt => {
-            const altHtml = wrapAnswerHtml(alt.html);
             x += `    <answer fraction="${alt.fraction}" format="html">\n`;
-            x += `      <text><![CDATA[${altHtml}]]></text>\n`;
-            x += fileTagsFor(altHtml, q.images);
+            x += `      <text><![CDATA[${alt.html}]]></text>\n`;
+            x += fileTagsFor(alt.html, q.images);
             x += `      <feedback format="html">\n        <text></text>\n      </feedback>\n`;
             x += `    </answer>\n`;
         });
@@ -426,62 +319,45 @@ function buildXML(questions) {
     return x + `</quiz>`;
 }
 
-function showConversionErrors(errors) {
-    const multiFile = new Set(errors.map(e => e.file)).size > 1;
-    const maxShown = 8;
-    const shown = errors.slice(0, maxShown);
-    const lines = shown.map((e, i) => {
-        const prefix = multiFile ? `${escXml(e.file)} — ` : '';
-        return `${i + 1}. ${prefix}${escXml(e.reason)}: "${escXml(e.snippet)}"`;
-    });
-    if (errors.length > maxShown) lines.push(`+ ${errors.length - maxShown} outra(s) questão(ões) com problema`);
-    const t = document.createElement('div');
-    t.className = 'toast error toast-list';
-    t.innerHTML = `<strong>${errors.length} questão(ões) não convertida(s):</strong><br>${lines.join('<br>')}`;
-    document.getElementById('toast-container').appendChild(t);
-    setTimeout(() => {
-        t.style.opacity = '0';
-        setTimeout(() => t.remove(), 400);
-    }, 12000);
-}
-
 async function doConvert() {
     const btn = document.getElementById('bcvt');
+    const btnText = document.getElementById('btn-text');
     btn.disabled = true;
+    btnText.textContent = 'CONVERTENDO…';
     try {
-        let total = 0;
-        const allErrors = [];
-        if (filesData.length === 1) {
-            const f = filesData[0];
-            const { questions, errors } = await parseDOCX(f.buffer);
-            total = questions.length;
-            errors.forEach(e => allErrors.push({ file: f.name, ...e }));
-            const xmlString = "\ufeff" + buildXML(questions);
-            const blob = new Blob([xmlString], {type: 'text/xml;charset=utf-8'});
+        const resultados = [];
+        for (const f of filesData) {
+            const r = await parseDOCX(f.buffer);
+            resultados.push({ nome: f.name, ...r, xml: "﻿" + buildXML(r.questions) });
+        }
+        if (resultados.length === 1) {
+            const r = resultados[0];
+            const blob = new Blob([r.xml], {type: 'text/xml;charset=utf-8'});
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
-            a.download = f.name.replace('.docx', '.xml');
+            a.download = r.nome.replace('.docx', '.xml');
             a.click();
         } else {
             const zip = new JSZip();
-            for (const f of filesData) {
-                const { questions, errors } = await parseDOCX(f.buffer);
-                total += questions.length;
-                errors.forEach(e => allErrors.push({ file: f.name, ...e }));
-                zip.file(f.name.replace('.docx','.xml'), "\ufeff" + buildXML(questions));
-            }
+            resultados.forEach(r => zip.file(r.nome.replace('.docx','.xml'), r.xml));
             const blob = await zip.generateAsync({type:'blob'});
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
             a.download = "questoes_moodle.zip";
             a.click();
         }
+        const total = resultados.reduce((s, r) => s + r.questions.length, 0);
         showToast(`Download de ${total} questões finalizado!`, "success");
-        if (allErrors.length > 0) showConversionErrors(allErrors);
+
+        const relatorios = resultados.map(gerarRelatorio);
+        mostrarRelatorios(relatorios);
+        const comErro = relatorios.reduce((s, R) => s + R.questoes.filter(q => pior(q) >= 3).length + R.naoConvertidas, 0);
+        if (comErro > 0) showToast(`${comErro} questão(ões) com erro: confira o relatório`, "error");
     } catch (e) {
         console.error(e);
-        showToast("Erro na conversão", "error"); 
-    } finally { 
-        btn.disabled = false; 
+        showToast("Erro na conversão", "error");
+    } finally {
+        btn.disabled = false;
+        btnText.textContent = 'CONVERTER E BAIXAR';
     }
 }
